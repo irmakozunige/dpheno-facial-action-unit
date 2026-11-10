@@ -7,19 +7,22 @@ Automated pipeline for identifying facial Action Unit (AU) biomarkers of apathy 
 ```
 Clinical Videos → OpenFace AU Extraction → XGBoost + SHAP → Apathy Biomarkers
        ↑
-LLM Meta-Analysis (PubMed, Semantic Scholar, Google Scholar, CrossRef)
-informs which AUs to extract
+LLM Meta-Analysis
+  ├── PubMed · Semantic Scholar · Google Scholar · CrossRef
+  ├── Full-text via Unpaywall (OA) + EZproxy (institutional)
+  ├── Semantic AU labelling (anatomical label, face region, functional tag)
+  └── Forest plots + feature vocabulary table → YOU decide which AUs to extract
 ```
 
 ## Pipeline
 
 | Script | Purpose |
 |--------|---------|
-| `src/01_meta_analysis.py` | Multi-source literature retrieval + forest plots + LLM narrative |
+| `src/01_meta_analysis.py` | Multi-source retrieval + full-text + semantic AU vocab + forest plots |
 | `src/02_feature_extraction.py` | OpenFace wrapper → per-video AU statistics |
 | `src/03_eda.py` | Apathy trajectories, AU heatmaps, correlation plots |
 | `src/04_model_shap.py` | XGBoost + SHAP (GroupKFold by patient) |
-| `src/05_mixed_models.py` | Linear mixed-effects models (statistical complement) |
+| `src/05_mixed_models.py` | Linear mixed-effects models |
 
 ## Setup
 
@@ -28,13 +31,47 @@ pip install -r requirements.txt
 export ANTHROPIC_API_KEY=sk-ant-...
 ```
 
+### Institutional full-text access (EZproxy)
+```bash
+export EZPROXY_BASE="https://ezproxy.youruniversity.edu/login?url="
+export EZPROXY_COOKIE="your_session_cookie"
+# Get cookie: browser DevTools → Application → Cookies after EZproxy login
+```
+Without these, the pipeline uses Unpaywall (open-access only) and falls back to abstracts.
+
 ### OpenFace (required for step 2)
 ```bash
 git clone https://github.com/TadasBaltrusaitis/OpenFace.git
 cd OpenFace && mkdir build && cd build
 cmake -D CMAKE_BUILD_TYPE=RELEASE .. && make -j4
-# set OPENFACE_BIN in 02_feature_extraction.py
 ```
+
+## Literature Sources (Step 1)
+
+| Source | Coverage |
+|--------|---------|
+| PubMed | Core clinical/neuroscience literature |
+| Semantic Scholar | Nature, Frontiers, Springer, broad CS+neuro |
+| Google Scholar | Widest coverage — ScienceDirect, Wiley, everything |
+| CrossRef | DOI metadata — Wiley, Elsevier, Frontiers, Sage |
+| Unpaywall | Open-access full-text PDFs (auto) |
+| EZproxy | Institutional full-text PDFs (requires credentials) |
+
+## AU Semantic Mapping
+
+For each AU found in the literature, Claude extracts:
+
+| Field | Example |
+|-------|---------|
+| `au` | AU12 |
+| `au_label` | Lip Corner Puller |
+| `face_region` | mouth |
+| `functional_tag` | smile / positive affect |
+| `direction` | decreased (in SZ vs HC) |
+| `feature_type` | intensity / frequency / duration / presence |
+| `hedges_g` | −0.84 |
+
+After running Step 1, open **`results/meta/au_feature_vocab.csv`** and fill in the `recommended_feature` and `include_in_model` columns. This becomes your feature specification for Step 2.
 
 ## Data Structure
 
@@ -44,60 +81,38 @@ data/
 │   ├── P01_Baseline.mp4
 │   ├── P01_FU1.mp4
 │   └── P01_FU3.mp4
-└── labels.csv          # patient_id, timepoint, apathy_score
+└── labels.csv      # patient_id, timepoint, apathy_score
 ```
-
-### labels.csv format
-```
-patient_id,timepoint,apathy_score
-P01,Baseline,32
-P01,FU3,24
-P02,Baseline,28
-```
-Timepoints: `Baseline`, `FU1`, `FU3`
 
 ## Run Order
 
 ```bash
-python src/01_meta_analysis.py    # → review results/meta/ before continuing
+python src/01_meta_analysis.py    # → review results/meta/ — especially au_feature_vocab.csv
+# edit AU_INTENSITIES in 02_feature_extraction.py based on your review
 python src/02_feature_extraction.py
 python src/03_eda.py
 python src/04_model_shap.py
 python src/05_mixed_models.py
 ```
 
-## Literature Sources (Step 1)
+## Outputs (Step 1)
 
-- **PubMed** via Biopython Entrez
-- **Semantic Scholar** via official API
-- **Google Scholar** via `scholarly`
-- **CrossRef** (covers Nature, Wiley, Frontiers, Elsevier/ScienceDirect DOI metadata)
+```
+results/meta/
+├── raw_extractions.json       per-paper Claude extraction
+├── au_long.csv                one row per paper × AU with effect sizes
+├── au_feature_vocab.csv  ★   MASTER TABLE — review and annotate this
+├── meta_results.csv           pooled Hedges' g per AU
+├── forest_AU**.png            one forest plot per AU (≥2 studies)
+├── bubble_summary.png         effect size × n studies × heterogeneity
+├── direction_heatmap.png      study × AU direction matrix
+├── vocab_heatmap.png          AU × face region evidence chart
+└── meta_analysis_summary.txt  LLM narrative
+```
 
-> Full-text access to ScienceDirect/Wiley requires institutional credentials.
-> The pipeline extracts from abstracts; manually add means/SDs to `results/meta/au_long.csv` after reading full texts.
+## Small-N Notes (N≈16 patients)
 
-## Small-N Notes (N≈16)
-
-- GroupKFold CV prevents patient leakage
-- XGBoost capped at `max_depth=2` with strong L1/L2
+- GroupKFold CV prevents patient leakage across train/test
+- XGBoost: `max_depth=2`, strong L1/L2 regularisation
 - SHAP rankings are hypothesis-generating, not confirmatory
 - Supplement with LME results (script 05) for reviewer robustness
-
-## Outputs
-
-```
-results/
-├── meta/
-│   ├── raw_extractions.json
-│   ├── au_long.csv
-│   ├── meta_results.csv
-│   ├── forest_AU**.png       ← one per AU
-│   ├── bubble_summary.png
-│   ├── direction_heatmap.png
-│   └── meta_analysis_summary.txt
-├── eda/
-└── model/
-    ├── shap_beeswarm_ExpA.png
-    ├── shap_bar_ExpA.png
-    └── metrics_summary.csv
-```
