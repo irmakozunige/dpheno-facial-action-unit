@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
+venv/
+.venv/
+
+# Data (never commit patient videos or raw data)
+data/videos/
+data/openface_raw/
+data/features.csv
+data/*.mp4
+data/*.avi
+data/*.mov
+
+# Results (generated — regenerate from scripts)
+results/
+
+# IDE
+.vscode/
+.idea/
+*.code-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+
+# API keys
+*.env
+secrets.py
