@@ -1,10 +1,11 @@
-# Meta-analysis & literature retrieval
-anthropic>=0.25.0
+# Literature retrieval
 biopython>=1.83
 requests>=2.31.0
 scholarly>=1.7.11
-semanticscholar>=0.8.0
 tqdm>=4.66.0
+
+# Full-text PDF extraction
+pymupdf>=1.24.0
 
 # Data & numerics
 pandas>=2.0.0
@@ -15,13 +16,15 @@ scipy>=1.12.0
 matplotlib>=3.8.0
 seaborn>=0.13.0
 
-# Feature extraction (OpenFace wrapping)
-# OpenFace must be installed separately — see README
-
-# Modelling
+# Modelling (scripts 02-05)
 scikit-learn>=1.4.0
 xgboost>=2.0.0
 shap>=0.44.0
-
-# Statistics
 statsmodels>=0.14.0
+
+# LLM backends — install what you use
+# Gemini: no extra package needed (pure requests)
+# Ollama / vLLM / any OpenAI-compat server:
+openai>=1.30.0
+# Anthropic (paid):
+# anthropic>=0.25.0
