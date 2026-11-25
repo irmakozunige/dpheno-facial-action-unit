@@ -80,47 +80,46 @@ def _gemini_rate_gate():
     _gemini_day_count[0] += 1
 
 
-def _call_gemini(prompt: str, max_tokens: int, model: str) -> str:
-    """Call Gemini via its REST API (no SDK needed)."""
-    import time as _t
-    url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
-           f"{model}:generateContent?key={GEMINI_API_KEY}")
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "maxOutputTokens": max_tokens,
-            "temperature":     0.0,
-        },
-    }
-    for attempt in range(5):
-        _gemini_rate_gate()
-        resp = requests.post(url, json=payload, timeout=120)
-        if resp.status_code == 429:
-            wait = 2 ** attempt * 10
-            print(f"    [Gemini] 429 — backing off {wait}s")
-            _t.sleep(wait)
-            continue
-        if resp.status_code == 503:
-            _t.sleep(30); continue
-        resp.raise_for_status()
-        candidates = resp.json().get("candidates", [])
-        if not candidates:
-            return ""
-        parts = candidates[0].get("content", {}).get("parts", [])
-        return "".join(p.get("text", "") for p in parts).strip()
-    raise RuntimeError(f"Gemini failed after 5 attempts: {resp.status_code} {resp.text[:200]}")
-
-
 def llm_chat(prompt: str, max_tokens: int = 1200, prefer_pro: bool = False) -> str:
     """
     Unified LLM call. Routes by LLM_BACKEND:
-      gemini      → Gemini 2.0 Flash (default) via REST, rate-limited
+      gemini        → official google-genai SDK (>= 2.3.0), rate-limited
       openai_compat → any OpenAI-compatible server (Ollama, vLLM, LM Studio)
-    prefer_pro=True → uses gemini-1.5-pro for the final narrative only (50 req/day).
+    prefer_pro=True → uses gemini-2.5-pro for final narrative (lower quota).
     """
+    import time as _t
+
     if LLM_BACKEND == "gemini" or (not LLM_BASE_URL and GEMINI_API_KEY):
-        model = "gemini-1.5-pro" if prefer_pro else LLM_MODEL
-        return _call_gemini(prompt, max_tokens, model)
+        import google.generativeai as genai
+        genai.configure(api_key=GEMINI_API_KEY)
+        model_name = "gemini-2.5-pro-preview-05-06" if prefer_pro else LLM_MODEL
+        model = genai.GenerativeModel(
+            model_name=model_name,
+            generation_config=genai.types.GenerationConfig(
+                max_output_tokens=max_tokens,
+                temperature=0.0,
+            ),
+        )
+        for attempt in range(5):
+            _gemini_rate_gate()
+            try:
+                response = model.generate_content(prompt)
+                if not response.candidates:
+                    return ""
+                return (response.text or "").strip()
+            except Exception as e:
+                err = str(e)
+                if "429" in err or "quota" in err.lower():
+                    wait = 2**attempt * 10
+                    print(f"    [Gemini] 429 — backing off {wait}s")
+                    _t.sleep(wait)
+                elif "503" in err:
+                    _t.sleep(30)
+                else:
+                    print(f"    [Gemini] error attempt {attempt+1}: {e}")
+                    _t.sleep(5)
+        return ""
+
     else:
         # OpenAI-compatible: Ollama / vLLM / LM Studio / any local server
         from openai import OpenAI as _OAI
@@ -132,7 +131,6 @@ def llm_chat(prompt: str, max_tokens: int = 1200, prefer_pro: bool = False) -> s
             temperature = 0.0,
         )
         text = resp.choices[0].message.content or ""
-        # strip <think> blocks (Qwen / DeepSeek reasoning models)
         return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
 
 # ── Config ────────────────────────────────────────────────────────────────────
