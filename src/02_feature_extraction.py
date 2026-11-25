@@ -38,19 +38,43 @@ OPENFACE_BIN   = "FeatureExtraction"   # or full path e.g. ~/OpenFace/build/bin/
 
 # AUs to include — update this list AFTER your meta-analysis
 # These are the most commonly reported in the schizophrenia literature
-# ── Clinically prioritised AUs ────────────────────────────────────────────────
-# Evidence base:
-#   AU5  (Upper Lid Raiser)    — increased in depression; marker of arousal/fear
-#   AU6  (Cheek Raiser)        — increased in depression; Duchenne smile component
-#   AU12 (Lip Corner Puller)   — negatively correlated with PANSS Negative scale
-#   AU4  (Brow Lowerer)        — reduced in schizophrenia; concentration/sadness
-#   AU1/2 (Brow Raise)         — surprise/concern; reduced in flat affect
-#   AU15 (Lip Corner Depress.) — sadness marker
-#   AU45 (Blink rate)          — reduced in schizophrenia; attention/dopamine proxy
-#   Source: Truelove-Hill 2021 (PMC8817208), self-confidence literature
-AU_INTENSITIES = ["AU01", "AU02", "AU04", "AU05", "AU06", "AU07",
-                  "AU09", "AU10", "AU12", "AU14", "AU15", "AU17",
-                  "AU20", "AU23", "AU25", "AU26", "AU45"]
+# ── AU feature list — based on meta-analysis findings ─────────────────────────
+#
+# TIER 1 — Strong evidence from meta-analysis (extract always):
+#   AU12 (Lip Corner Puller)      — 6 studies, 100% decreased, corr. PANSS-N
+#   AU6  (Cheek Raiser)           — Duchenne smile, decreased in SZ (OpenFace)
+#   AU9  (Nose Wrinkler)          — 2 studies, 100% increased (disgust response)
+#   EXPR (Overall Expressivity)   — correlated with Apathy Inventory
+#
+# TIER 2 — Moderate evidence (extract, include in model as candidates):
+#   AU1  (Inner Brow Raise)       — decreased in SZ (graph analysis)
+#   AU2  (Outer Brow Raise)       — decreased in SZ (graph analysis)
+#   AU14 (Dimpler)                — decreased in SZ (graph analysis)
+#   AU4  (Brow Lowerer)           — theoretical (anger/sadness/concentration)
+#   AU15 (Lip Corner Depressor)   — sadness marker
+#
+# TIER 3 — Extracted but not prioritised in model:
+#   AU5, AU7, AU10, AU17, AU20, AU23, AU25, AU26 — extracted for completeness
+#
+# HEAD MOVEMENT — extracted separately (see pose section):
+#   head_movement_mean, head_movement_std, head_stillness, head_nodding_freq etc.
+#
+# Sources: meta-analysis au_long.csv + Truelove-Hill 2021 (PMC8817208)
+
+AU_INTENSITIES = [
+    # Tier 1 — strong evidence
+    "AU06", "AU09", "AU12",
+    # Tier 2 — moderate evidence
+    "AU01", "AU02", "AU04", "AU14", "AU15",
+    # Tier 3 — completeness
+    "AU05", "AU07", "AU10", "AU17", "AU20", "AU23", "AU25", "AU26",
+]
+
+# Tier 1 AUs — used to flag which features to prioritise in modelling
+AU_TIER1 = {"AU06", "AU09", "AU12"}
+
+# Tier 2 AUs
+AU_TIER2 = {"AU01", "AU02", "AU04", "AU14", "AU15"}
 
 # Priority AUs for apathy/negative symptoms — used for focused feature set
 AU_PRIORITY = {
