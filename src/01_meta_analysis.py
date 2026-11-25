@@ -51,11 +51,11 @@ from Bio import Entrez
 LLM_BACKEND      = os.environ.get("LLM_BACKEND", "gemini")
 GEMINI_API_KEY   = os.environ.get("GEMINI_API_KEY", "")
 LLM_BASE_URL     = os.environ.get("LLM_BASE_URL", "")
-LLM_MODEL        = os.environ.get("LLM_MODEL", "gemini-2.0-flash")
+LLM_MODEL        = os.environ.get("LLM_MODEL", "gemini-3.5-flash-lite")
 LLM_API_KEY      = os.environ.get("LLM_API_KEY", GEMINI_API_KEY)
 
 # Gemini free tier limits (enforced by the wrapper below)
-# gemini-2.0-flash:  1500 req/day,  15 req/min,  1M tokens/min
+# gemini-3.5-flash-lite:  1500 req/day,  15 req/min,  1M tokens/min
 # gemini-1.5-flash:  1500 req/day,  15 req/min,  1M tokens/min
 # gemini-1.5-pro:     50 req/day,    2 req/min   (use only for narrative summary)
 GEMINI_RPM        = int(os.environ.get("GEMINI_RPM", "14"))   # stay under 15
@@ -93,7 +93,7 @@ def llm_chat(prompt: str, max_tokens: int = 1200, prefer_pro: bool = False) -> s
         from google import genai as _genai
         from google.genai import types as _gtypes
         _client = _genai.Client(api_key=GEMINI_API_KEY)
-        model_name = "gemini-2.0-flash" if prefer_pro else LLM_MODEL
+        model_name = "gemini-3.5-flash-lite" if prefer_pro else LLM_MODEL
         for attempt in range(5):
             _gemini_rate_gate()
             try:
