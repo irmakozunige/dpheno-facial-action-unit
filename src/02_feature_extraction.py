@@ -265,21 +265,6 @@ def aggregate_openface_csv(csv_path: Path) -> dict:
         # High stillness = reduced spontaneous movement = apathy proxy
         feats["head_stillness"]       = (displacement < 0.3).mean()
 
-    # ── 10. Blink rate (AU45 — dopamine/attention proxy) ────────────────────
-    if "AU45_c" in df_valid.columns:
-        # Count blink events (transitions from 0→1 in AU45 occurrence)
-        blinks     = df_valid["AU45_c"].values
-        blink_onsets = np.diff(blinks.astype(int))
-        n_blinks   = (blink_onsets == 1).sum()
-        # estimate duration in minutes
-        fps        = VIDEO_FPS_DEFAULT
-        if "timestamp" in df_valid.columns and len(df_valid) > 1:
-            duration_s = df_valid["timestamp"].iloc[-1] - df_valid["timestamp"].iloc[0]
-            fps        = len(df_valid) / max(duration_s, 1)
-        duration_min = len(df_valid) / fps / 60
-        feats["blink_rate_per_min"]   = n_blinks / max(duration_min, 0.1)
-        feats["blink_rate_raw"]       = feats["blink_rate_per_min"]   # alias
-
     return feats
 
 
