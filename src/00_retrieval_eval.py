@@ -580,6 +580,21 @@ if __name__ == "__main__":
     if not GEMINI_API_KEY:
         print("WARNING: GEMINI_API_KEY not set — LLM metrics will be skipped.")
         print("         Only system metrics (hit rate, chunk count) will run.\n")
+    else:
+        # ── Smoke test: verify Gemini responds before the full eval loop ──────
+        print("=== Gemini smoke test ===")
+        try:
+            test_resp = gemini_judge("Reply with exactly: OK")
+            if "OK" in test_resp.upper():
+                print(f"  Gemini responded: {test_resp.strip()} ✓")
+            else:
+                print(f"  Gemini responded (unexpected): {test_resp[:100]}")
+            print(f"  Daily request count so far: {_day_count[0]}\n")
+        except Exception as e:
+            print(f"  Gemini FAILED: {e}")
+            print("  → Check GEMINI_API_KEY and network access from this node")
+            print("  → Continuing with system metrics only\n")
+            GEMINI_API_KEY = ""   # disable LLM metrics for rest of run
 
     print(f"=== Step 1: Retrieving {SAMPLE_N} sample papers ===")
     papers = fetch_sample_papers(SAMPLE_N)
