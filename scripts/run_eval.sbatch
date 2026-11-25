@@ -15,13 +15,16 @@
 cd $SLURM_SUBMIT_DIR
 mkdir -p logs
 
-source ~/.bashrc
-conda activate dpheno-au
+# Use venv Python directly — bypasses conda activate issues on compute nodes
+PYTHON=/home/users/o/ozarslan/dpheno-facial-action-unit/.venv/bin/python
 
+# Load API keys
 set -a && source .env && set +a
-echo "GEMINI_API_KEY set: $([ -n "$GEMINI_API_KEY" ] && echo YES || echo NO)"
+
+echo "Python:          $($PYTHON --version)"
+echo "GEMINI_API_KEY:  $([ -n "$GEMINI_API_KEY" ] && echo YES || echo NO)"
 echo "Node: $(hostname) | GPU: $CUDA_VISIBLE_DEVICES | Start: $(date)"
 
-python src/00_retrieval_eval.py
+$PYTHON src/00_retrieval_eval.py
 
 echo "Done: $(date)"
