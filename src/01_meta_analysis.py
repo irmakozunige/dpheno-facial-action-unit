@@ -90,20 +90,21 @@ def llm_chat(prompt: str, max_tokens: int = 1200, prefer_pro: bool = False) -> s
     import time as _t
 
     if LLM_BACKEND == "gemini" or (not LLM_BASE_URL and GEMINI_API_KEY):
-        import google.generativeai as genai
-        genai.configure(api_key=GEMINI_API_KEY)
+        from google import genai as _genai
+        from google.genai import types as _gtypes
+        _client = _genai.Client(api_key=GEMINI_API_KEY)
         model_name = "gemini-2.5-pro-preview-05-06" if prefer_pro else LLM_MODEL
-        model = genai.GenerativeModel(
-            model_name=model_name,
-            generation_config=genai.types.GenerationConfig(
-                max_output_tokens=max_tokens,
-                temperature=0.0,
-            ),
-        )
         for attempt in range(5):
             _gemini_rate_gate()
             try:
-                response = model.generate_content(prompt)
+                response = _client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=_gtypes.GenerateContentConfig(
+                        max_output_tokens=max_tokens,
+                        temperature=0.0,
+                    ),
+                )
                 if not response.candidates:
                     return ""
                 return (response.text or "").strip()
