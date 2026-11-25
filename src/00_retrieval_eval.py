@@ -77,15 +77,11 @@ def _init_gemini():
     global _gemini_model
     if _gemini_model is not None:
         return
-    import google.generativeai as genai
-    genai.configure(api_key=GEMINI_API_KEY)
-    _gemini_model = genai.GenerativeModel(
-        model_name=EVAL_MODEL,
-        generation_config=genai.types.GenerationConfig(
-            max_output_tokens=512,
-            temperature=0.0,
-        ),
-    )
+    from google import genai
+    from google.genai import types
+    _client = genai.Client(api_key=GEMINI_API_KEY)
+    # store client and model name, generate_content called per-request
+    _gemini_model = (_client, EVAL_MODEL)
 
 
 def _rate_gate():
@@ -104,26 +100,35 @@ def _rate_gate():
 def gemini_judge(prompt: str, debug: bool = False) -> str:
     """Call Gemini via official SDK with rate limiting and retry."""
     _init_gemini()
+    _init_gemini()
+    client, model_name = _gemini_model
+    from google.genai import types as _types
     for attempt in range(5):
         _rate_gate()
         try:
-            response = _gemini_model.generate_content(prompt)
+            response = client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+                config=_types.GenerateContentConfig(
+                    max_output_tokens=512,
+                    temperature=0.0,
+                ),
+            )
 
             if debug:
-                finish = (getattr(response.candidates[0], "finish_reason", "?")
+                finish = (response.candidates[0].finish_reason
                           if response.candidates else "NO_CANDIDATES")
                 print(f"    finish_reason={finish}  day_requests={_day_count[0]}")
 
             if not response.candidates:
-                block = getattr(response.prompt_feedback, "block_reason", "unknown")
                 if debug:
-                    print(f"    Blocked: {block}")
-                return f"BLOCKED:{block}"
+                    print("    No candidates returned")
+                return "BLOCKED:NO_CANDIDATES"
 
             text = (response.text or "").strip()
 
             if not text:
-                finish = getattr(response.candidates[0], "finish_reason", "?")
+                finish = response.candidates[0].finish_reason
                 if debug:
                     print(f"    Empty response, finish_reason={finish}")
                 if str(finish) == "SAFETY":
