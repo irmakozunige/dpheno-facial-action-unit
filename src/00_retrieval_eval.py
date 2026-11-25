@@ -41,7 +41,7 @@ RESULTS_DIR = "results/eval"
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-EVAL_MODEL     = os.environ.get("EVAL_MODEL", "gemini-2.0-flash")
+EVAL_MODEL     = os.environ.get("EVAL_MODEL", "gemini-3.5-flash-lite")
 SAMPLE_N       = int(os.environ.get("EVAL_SAMPLE", "20"))
 
 Entrez.email = "irmak.ozarslan@unige.ch"
