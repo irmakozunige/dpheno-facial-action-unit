@@ -41,7 +41,7 @@ RESULTS_DIR = "results/eval"
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-EVAL_MODEL     = os.environ.get("EVAL_MODEL", "gemini-2.0-flash")  # judge model
+EVAL_MODEL     = os.environ.get("EVAL_MODEL", "gemini-2.5-flash-preview-05-20")  # judge model
 SAMPLE_N       = int(os.environ.get("EVAL_SAMPLE", "20"))          # papers to eval
 
 Entrez.email = "irmak.ozarslan@unige.ch"
@@ -592,19 +592,16 @@ Be direct and practical. Flag any scores below 0.5 as requiring attention.
 
 
 def generate_report(df: pd.DataFrame) -> str:
-    summary = df.describe().to_dict()
-    source_means = df.groupby("source")[["context_relevance","au_hit_rate"]].mean().to_dict()
+    """Generate narrative report using the same gemini_judge wrapper (rate-limited)."""
+    summary      = df.describe().round(3).to_dict()
+    source_means = (df.groupby("source")[["context_relevance","au_hit_rate"]]
+                      .mean().round(3).to_dict())
     results_json = json.dumps({"summary": summary, "by_source": source_means}, indent=2)
-    url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
-           f"gemini-1.5-pro:generateContent?key={GEMINI_API_KEY}")
-    resp = requests.post(url, json={
-        "contents": [{"parts": [{"text": REPORT_PROMPT.format(results_json=results_json[:3000])}]}],
-        "generationConfig": {"maxOutputTokens": 600, "temperature": 0.0},
-    }, timeout=60)
-    if resp.status_code != 200:
-        return f"Report generation failed: {resp.status_code}"
-    parts = resp.json().get("candidates",[{}])[0].get("content",{}).get("parts",[])
-    return "".join(p.get("text","") for p in parts).strip()
+    prompt       = REPORT_PROMPT.format(results_json=results_json[:3000])
+    result       = gemini_judge(prompt)
+    if not result or result.startswith("BLOCKED"):
+        return f"Report generation failed or blocked: {result}"
+    return result
 
 
 # ═══════════════════════════════════════════════════════════════════════════
