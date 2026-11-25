@@ -320,19 +320,49 @@ def search_openalex(query, n=25):
 
 
 def search_core(query, n=20):
-    headers={"Authorization":f"Bearer {CORE_API_KEY}"} if CORE_API_KEY else {}
-    r=_get("https://api.core.ac.uk/v3/search/works",
-           params={"q":query,"limit":n},headers=headers,timeout=20)
-    if not r or r.status_code not in (200,429): return []
-    out=[]
-    for w in r.json().get("results",[]):
-        abst=w.get("abstract","") or ""; ttl=w.get("title","") or ""
+    if not CORE_API_KEY:
+        print("    [CORE] No API key — skipping (get free key at core.ac.uk/api-keys)")
+        return []
+    headers = {"Authorization": f"Bearer {CORE_API_KEY}"}
+    # Request extra fields for better full-text coverage
+    r = _get("https://api.core.ac.uk/v3/search/works",
+             params={"q": query, "limit": n,
+                     "fields": "id,title,abstract,authors,yearPublished,"
+                               "doi,publisher,downloadUrl,fullText,links"},
+             headers=headers, timeout=30)
+    if not r:
+        print("    [CORE] No response"); return []
+    if r.status_code == 401:
+        print("    [CORE] Invalid API key"); return []
+    if r.status_code == 429:
+        print("    [CORE] Rate limited"); return []
+    if r.status_code != 200:
+        print(f"    [CORE] HTTP {r.status_code}"); return []
+    out = []
+    for w in r.json().get("results", []):
+        abst = w.get("abstract", "") or ""
+        ttl  = w.get("title", "") or ""
         if not abst.strip(): continue
-        doi=w.get("doi","") or ""; year=str(w.get("yearPublished","?"))
-        aus=w.get("authors",[]); fa=(aus[0].get("name","")).split()[-1] if aus else ""
-        pdf=w.get("downloadUrl","") or ""
-        p=_paper(f"core_{w.get('id',_fp(ttl)[:8])}","CORE",fa,year,ttl,abst,w.get("publisher",""),doi)
-        p["oa_pdf_url"]=pdf; out.append(p)
+        doi  = w.get("doi", "") or ""
+        year = str(w.get("yearPublished", "?"))
+        aus  = w.get("authors", [])
+        fa   = (aus[0].get("name", "")).split()[-1] if aus else ""
+        # CORE provides multiple download URLs — try all
+        pdf_url = w.get("downloadUrl", "") or ""
+        # also check links array for PDF
+        if not pdf_url:
+            for link in (w.get("links") or []):
+                if link.get("type") == "download":
+                    pdf_url = link.get("url", "")
+                    break
+        p = _paper(f"core_{w.get('id', _fp(ttl)[:8])}", "CORE",
+                   fa, year, ttl, abst, w.get("publisher", ""), doi)
+        p["oa_pdf_url"] = pdf_url
+        # CORE sometimes returns full text directly — use it if available
+        if w.get("fullText"):
+            p["full_text"] = w["fullText"][:8000]
+            p["full_text_source"] = "core_fulltext"
+        out.append(p)
     return out
 
 
