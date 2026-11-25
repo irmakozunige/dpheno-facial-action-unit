@@ -765,15 +765,39 @@ Rules:
 """).strip()
 
 def extract_paper(paper):
-    body=(f"[FULL TEXT]\n{paper['full_text']}" if paper.get("full_text")
-          else f"[ABSTRACT]\nTitle: {paper['title']}\n\n{paper['abstract']}")
-    prompt=f"{EXTRACT_PROMPT.format(au_ref=AU_REF_JSON)}\n\n---\n{body}"
+    body = (f"[FULL TEXT]\n{paper['full_text']}" if paper.get("full_text")
+            else f"[ABSTRACT]\nTitle: {paper['title']}\n\n{paper['abstract']}")
+
+    # Cap body length to avoid token limit issues with gemini-3.5-flash-lite
+    body = body[:6000]
+
+    prompt = f"{EXTRACT_PROMPT.format(au_ref=AU_REF_JSON)}\n\n---\n{body}"
+
     try:
-        raw=llm_chat(prompt,max_tokens=1200)
-        raw=re.sub(r"^```(?:json)?\s*|```$","",raw,flags=re.MULTILINE).strip()
-        m=re.search(r"\{.*\}",raw,re.DOTALL)
-        return json.loads(m.group(0) if m else raw)
-    except Exception as e: return {"error":str(e)}
+        raw = llm_chat(prompt, max_tokens=1200)
+
+        if not raw:
+            print(f"  ⚠ Empty response for: {paper['title'][:60]}")
+            return {"error": "empty_response"}
+
+        raw = re.sub(r"^```(?:json)?\s*|```$", "", raw, flags=re.MULTILINE).strip()
+        m   = re.search(r"\{.*\}", raw, re.DOTALL)
+        if not m:
+            print(f"  ⚠ No JSON in response for: {paper['title'][:60]}")
+            print(f"    Raw response: {raw[:200]}")
+            return {"error": "no_json", "raw": raw[:300]}
+
+        result = json.loads(m.group(0))
+        aus    = result.get("aus_studied", [])
+        print(f"  ✓ {paper['title'][:55]} → {len(aus)} AUs: {aus}")
+        return result
+
+    except json.JSONDecodeError as e:
+        print(f"  ⚠ JSON parse error for {paper['title'][:50]}: {e}")
+        return {"error": f"json_parse: {e}", "raw": raw[:300] if 'raw' in locals() else ""}
+    except Exception as e:
+        print(f"  ⚠ Error for {paper['title'][:50]}: {e}")
+        return {"error": str(e)}
 
 
 # ═══════════════════════════════════════════════════════════════════════════
