@@ -147,17 +147,33 @@ BROWSER_UA   = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
                 "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
 SCIHUB_MIRRORS = ["https://sci-hub.se", "https://sci-hub.st", "https://sci-hub.ru"]
 
+# ── Source-specific queries ───────────────────────────────────────────────────
+# PubMed uses MeSH terms for precision; other APIs use free-text variants
+
+PUBMED_QUERY = (
+    '(("facial expression"[MeSH] OR "action unit"[tiab] OR "AU1"[tiab] OR '
+    '"AU2"[tiab] OR "AU4"[tiab] OR "AU6"[tiab] OR "AU12"[tiab] OR '
+    '"AU15"[tiab] OR "AU25"[tiab] OR "AU45"[tiab] OR '
+    '"OpenFace"[tiab] OR "FACS"[tiab] OR "facial action coding"[tiab] OR '
+    '"facial action unit"[tiab]) AND '
+    '("schizophrenia"[MeSH] OR "psychosis"[MeSH] OR '
+    '"schizoaffective disorder"[MeSH] OR "negative symptoms"[tiab] OR '
+    '"blunted affect"[tiab] OR "flat affect"[tiab] OR "apathy"[tiab]))'
+)
+
+# Free-text queries for APIs that don't support MeSH
+# (Semantic Scholar, OpenAlex, CORE, CrossRef, Google Scholar)
 QUERIES = [
-    "facial action units schizophrenia",
-    "facial expression flat affect schizophrenia",
-    "facial action units negative symptoms",
-    "apathy facial expression schizophrenia",
-    "facial affect automated analysis psychosis",
-    "OpenFace schizophrenia negative symptoms",
-    "FACS facial coding schizophrenia",
-    "blunted affect facial movement schizophrenia",
-    "facial expressivity schizophrenia measurement",
-    "automated facial analysis psychosis negative symptoms",
+    "facial action units schizophrenia negative symptoms",
+    "facial action unit AU schizophrenia blunted affect",
+    "OpenFace schizophrenia negative symptoms automated",
+    "FACS facial action coding schizophrenia psychosis",
+    "facial expressivity flat affect schizophrenia quantitative",
+    "AU12 AU6 AU4 smile schizophrenia",
+    "blunted affect facial movement automated analysis",
+    "facial expression apathy schizophrenia machine learning",
+    "facial affect psychosis negative symptoms measurement",
+    "automated facial analysis schizophrenia clinical interview",
 ]
 
 AU_REFERENCE = {
@@ -206,8 +222,10 @@ def _get(url,params=None,headers=None,timeout=15,**kw):
 # ═══════════════════════════════════════════════════════════════════════════
 
 def search_pubmed(query, n=20):
+    # Always use the precise MeSH query for PubMed regardless of query param
+    pubmed_term = PUBMED_QUERY
     try:
-        h=Entrez.esearch(db="pubmed",term=query,retmax=n,sort="relevance")
+        h=Entrez.esearch(db="pubmed",term=pubmed_term,retmax=n,sort="relevance")
         ids=Entrez.read(h)["IdList"]; h.close()
         if not ids: return []
         h=Entrez.efetch(db="pubmed",id=ids,rettype="abstract",retmode="xml")
@@ -396,8 +414,10 @@ def collect_all_papers():
     ]
     for name,fn,n in source_fns:
         print(f"\n  [{name}]")
-        for q in QUERIES:
-            print(f"    -> {q[:55]}")
+        # PubMed uses one precise MeSH query — no need to loop all queries
+        query_list = ["pubmed_mesh"] if name == "PubMed" else QUERIES
+        for q in query_list:
+            print(f"    -> {q[:65]}")
             try: res=fn(q,n)
             except TypeError:
                 try: res=fn(q)
