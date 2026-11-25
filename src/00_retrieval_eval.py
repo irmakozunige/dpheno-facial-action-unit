@@ -186,8 +186,15 @@ def fetch_sample_papers(n: int) -> list[dict]:
 
     # PubMed
     try:
+        # MeSH-anchored query — far more precise than free text
+        pubmed_query = (
+            '(("facial expression"[MeSH] OR "action unit"[tiab] OR "AU1"[tiab] OR '
+            '"AU4"[tiab] OR "AU12"[tiab] OR "OpenFace"[tiab] OR "FACS"[tiab] OR '
+            '"facial action coding"[tiab]) AND '
+            '("schizophrenia"[MeSH] OR "psychosis"[MeSH] OR "negative symptoms"[tiab]))'
+        )
         h   = Entrez.esearch(db="pubmed",
-                              term="facial action units schizophrenia OR blunted affect AU schizophrenia OR OpenFace schizophrenia",
+                              term=pubmed_query,
                               retmax=n, sort="relevance")
         ids = Entrez.read(h)["IdList"]; h.close()
         h   = Entrez.efetch(db="pubmed", id=ids, rettype="abstract", retmode="xml")
@@ -589,10 +596,15 @@ def plot_results(df: pd.DataFrame):
     ax.legend(fontsize=8)
 
     plt.tight_layout()
+    os.makedirs(RESULTS_DIR, exist_ok=True)
     out = f"{RESULTS_DIR}/retrieval_eval.png"
-    plt.savefig(out, dpi=150, bbox_inches="tight")
-    plt.close()
-    print(f"  Saved {out}")
+    try:
+        plt.savefig(out, dpi=150, bbox_inches="tight")
+        plt.close()
+        print(f"  Saved {out}")
+    except Exception as e:
+        print(f"  Plot save failed: {e}")
+        plt.close()
 
 
 # ═══════════════════════════════════════════════════════════════════════════
