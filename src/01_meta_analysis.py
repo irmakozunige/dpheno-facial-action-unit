@@ -56,8 +56,8 @@ LLM_API_KEY      = os.environ.get("LLM_API_KEY", GEMINI_API_KEY)
 
 # Gemini free tier limits (enforced by the wrapper below)
 # gemini-3.5-flash-lite:  1500 req/day,  15 req/min,  1M tokens/min
-# gemini-1.5-flash:  1500 req/day,  15 req/min,  1M tokens/min
-# gemini-1.5-pro:     50 req/day,    2 req/min   (use only for narrative summary)
+# gemini-3.5-flash-lite: 1500 req/day, 15 req/min
+# gemini-3.5-flash-lite:     50 req/day,    2 req/min   (use only for narrative summary)
 GEMINI_RPM        = int(os.environ.get("GEMINI_RPM", "14"))   # stay under 15
 GEMINI_RPD        = int(os.environ.get("GEMINI_RPD", "1490"))  # stay under 1500
 _gemini_req_times: list[float] = []
@@ -85,7 +85,7 @@ def llm_chat(prompt: str, max_tokens: int = 1200, prefer_pro: bool = False) -> s
     Unified LLM call. Routes by LLM_BACKEND:
       gemini        → official google-genai SDK (>= 2.3.0), rate-limited
       openai_compat → any OpenAI-compatible server (Ollama, vLLM, LM Studio)
-    prefer_pro=True → uses gemini-2.5-pro for final narrative (lower quota).
+    prefer_pro=True → uses gemini-3.5-flash-lite for final narrative.
     """
     import time as _t
 
@@ -93,7 +93,7 @@ def llm_chat(prompt: str, max_tokens: int = 1200, prefer_pro: bool = False) -> s
         from google import genai as _genai
         from google.genai import types as _gtypes
         _client = _genai.Client(api_key=GEMINI_API_KEY)
-        model_name = "gemini-3.5-flash-lite" if prefer_pro else LLM_MODEL
+        model_name = LLM_MODEL  # always use gemini-3.5-flash-lite
         for attempt in range(5):
             _gemini_rate_gate()
             try:
