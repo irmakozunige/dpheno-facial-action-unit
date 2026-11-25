@@ -22,8 +22,8 @@ xgboost>=2.0.0
 shap>=0.44.0
 statsmodels>=0.14.0
 
-# LLM backends — Gemini needs no extra package (pure requests)
-# For Ollama / vLLM / any OpenAI-compat server:
+# LLM — Gemini (official SDK, required >= 2.3.0)
+google-genai>=2.3.0
+
+# LLM — OpenAI-compatible (Ollama / vLLM / LM Studio)
 openai>=1.30.0
-# For Anthropic (paid):
-# anthropic>=0.25.0
