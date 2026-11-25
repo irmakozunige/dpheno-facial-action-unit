@@ -453,16 +453,20 @@ _QUANT_PAT = re.compile(
 def rank_papers(papers: list[dict]) -> list[dict]:
     """
     Score each paper by relevance to AU + schizophrenia research.
-    Returns papers sorted descending, capped at TOP_K.
 
-    Scoring:
-      +5 per AU code mention  (AU4, AU12 etc.)       — most specific signal
+    HARD REQUIREMENT: paper must have BOTH:
+      - at least 1 AU signal (AU code OR tool name)
+      - at least 1 schizophrenia term
+    Papers missing either are scored 0 and excluded.
+
+    Scoring (only applied when both conditions met):
+      +5 per AU code mention  (AU4, AU12 etc.)
       +3 per tool/method term (OpenFace, FACS etc.)
       +2 per schizophrenia term
       +1 per quantitative term (mean, SD, p=)
-      +10 bonus if title contains AU code             — title = very strong signal
-      +5  bonus if title contains OpenFace or FACS
-      -5  penalty if no schizophrenia term at all     — wrong domain
+      +10 bonus if AU code in title
+      +10 bonus if tool name in title
+      +5  bonus if schizophrenia term in title
     """
     for p in papers:
         text  = f"{p.get('title','')} {p.get('abstract','')}"
@@ -473,28 +477,42 @@ def rank_papers(papers: list[dict]) -> list[dict]:
         sz_hits   = len(_SZ_PAT.findall(text))
         q_hits    = len(_QUANT_PAT.findall(text))
 
+        # Hard gate: MUST have both AU signal AND schizophrenia term
+        has_au = (au_hits > 0 or tool_hits > 0)
+        has_sz = (sz_hits > 0)
+
+        if not has_au or not has_sz:
+            p["_relevance_score"] = 0
+            p["_excluded"]        = True
+            continue
+
         score = (au_hits * 5 + tool_hits * 3 + sz_hits * 2 + q_hits * 1)
 
-        # Title bonuses
+        # Title bonuses — title mention = paper is specifically about this
         if _AU_PAT.search(title):   score += 10
-        if _TOOL_PAT.search(title): score += 5
-
-        # Penalty: irrelevant domain
-        if sz_hits == 0: score -= 5
+        if _TOOL_PAT.search(title): score += 10
+        if _SZ_PAT.search(title):   score += 5
 
         p["_relevance_score"] = score
+        p["_excluded"]        = False
 
-    ranked = sorted(papers, key=lambda p: p["_relevance_score"], reverse=True)
+    # Only keep papers that passed the hard gate
+    eligible = [p for p in papers if not p.get("_excluded", False)]
+    excluded = len(papers) - len(eligible)
+    ranked   = sorted(eligible, key=lambda p: p["_relevance_score"], reverse=True)
 
-    print(f"\n=== Relevance ranking (top {TOP_K} of {len(papers)}) ===")
-    print(f"  {'Score':>6}  {'AU':>3}  Title[:65]")
-    print(f"  {'─'*6}  {'─'*3}  {'─'*65}")
+    print(f"\n=== Relevance ranking ===")
+    print(f"  {excluded}/{len(papers)} papers excluded (missing AU or SZ signal)")
+    print(f"  {len(eligible)} eligible → keeping top {min(TOP_K, len(eligible))}")
+    print(f"\n  {'Score':>6}  {'AU':>3}  {'SZ':>3}  Title")
+    print(f"  {'─'*6}  {'─'*3}  {'─'*3}  {'─'*65}")
     for p in ranked[:TOP_K]:
         au_n = len(_AU_PAT.findall(f"{p['title']} {p['abstract']}"))
-        print(f"  {p['_relevance_score']:>6.0f}  {au_n:>3}  {p['title'][:65]}")
+        sz_n = len(_SZ_PAT.findall(f"{p['title']} {p['abstract']}"))
+        print(f"  {p['_relevance_score']:>6.0f}  {au_n:>3}  {sz_n:>3}  {p['title'][:65]}")
 
     if len(ranked) > TOP_K:
-        print(f"  ... {len(ranked)-TOP_K} lower-ranked papers discarded")
+        print(f"  ... {len(ranked)-TOP_K} eligible papers below cutoff")
 
     return ranked[:TOP_K]
 
