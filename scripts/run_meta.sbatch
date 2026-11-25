@@ -15,13 +15,14 @@
 cd $SLURM_SUBMIT_DIR
 mkdir -p logs
 
-source ~/.bashrc
-conda activate dpheno-au
+PYTHON=/home/users/o/ozarslan/dpheno-facial-action-unit/.venv/bin/python
 
 set -a && source .env && set +a
-echo "GEMINI_API_KEY set: $([ -n "$GEMINI_API_KEY" ] && echo YES || echo NO)"
+
+echo "Python:          $($PYTHON --version)"
+echo "GEMINI_API_KEY:  $([ -n "$GEMINI_API_KEY" ] && echo YES || echo NO)"
 echo "Node: $(hostname) | GPU: $CUDA_VISIBLE_DEVICES | Start: $(date)"
 
-python src/01_meta_analysis.py
+$PYTHON src/01_meta_analysis.py
 
 echo "Done: $(date)"
