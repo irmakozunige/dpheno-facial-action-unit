@@ -223,7 +223,7 @@ AU_REFERENCE = {
              "clinical_direction":"increased",  "clinical_scale":"negative_symptoms",  "priority":"MEDIUM"},
     "AU45": {"label":"Blink",                   "muscle":"orbicularis oculi",     "face_region":"eye",   "functional_tag":"blink rate — dopamine/attention proxy",
              "clinical_direction":"decreased",  "clinical_scale":"schizophrenia",      "priority":"HIGH",
-             "note":"reduced blink rate linked to dopamine hypofunction; attention marker"},
+             "note":"AU45 occurrence tracked but not used as standalone biomarker"},
     "AU46": {"label":"Wink",                    "muscle":"orbicularis oculi",     "face_region":"eye",   "functional_tag":"deliberate social signal",
              "clinical_direction":"decreased",  "clinical_scale":"social_cognition",   "priority":"LOW"},
     # ── Composite / head movement biomarkers (not FACS AUs but extracted by OpenFace) ──
@@ -238,10 +238,6 @@ AU_REFERENCE = {
     "HEAD_STILL":   {"label":"Head Stillness Index",     "face_region":"head",
                      "functional_tag":"proportion frames with near-zero movement",
                      "clinical_direction":"increased", "clinical_scale":"negative_symptoms", "priority":"HIGH"},
-    "BLINK_RATE":   {"label":"Blink Rate (per minute)",  "face_region":"eye",
-                     "functional_tag":"blink onsets per minute",
-                     "clinical_direction":"decreased", "clinical_scale":"schizophrenia",     "priority":"HIGH",
-                     "note":"dopaminergic proxy; reduced in schizophrenia"},
 }
 AU_REF_JSON = json.dumps(AU_REFERENCE, indent=2)
 
