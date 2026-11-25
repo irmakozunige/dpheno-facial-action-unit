@@ -59,7 +59,7 @@ LLM_API_KEY      = os.environ.get("LLM_API_KEY", GEMINI_API_KEY)
 # gemini-3.5-flash-lite: 1500 req/day, 15 req/min
 # gemini-3.5-flash-lite:     50 req/day,    2 req/min   (use only for narrative summary)
 GEMINI_RPM        = int(os.environ.get("GEMINI_RPM", "14"))   # stay under 15
-GEMINI_RPD        = int(os.environ.get("GEMINI_RPD", "1490"))  # stay under 1500
+GEMINI_RPD        = int(os.environ.get("GEMINI_RPD", "490"))   # stay under 500 (gemini-3.5-flash-lite limit)
 _gemini_req_times: list[float] = []
 _gemini_day_count: list[int]   = [0]
 
@@ -785,8 +785,8 @@ def extract_paper(paper):
     body = (f"[FULL TEXT]\n{paper['full_text']}" if paper.get("full_text")
             else f"[ABSTRACT]\nTitle: {paper['title']}\n\n{paper['abstract']}")
 
-    # Cap body length to avoid token limit issues with gemini-3.5-flash-lite
-    body = body[:6000]
+    # Cap at 15000 chars — safe with 250k TPM limit
+    body = body[:15000]
 
     prompt = f"{EXTRACT_PROMPT.format(au_ref=AU_REF_JSON)}\n\n---\n{body}"
 
