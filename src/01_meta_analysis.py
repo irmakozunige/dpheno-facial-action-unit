@@ -1098,7 +1098,15 @@ if __name__=="__main__":
     papers=enrich_with_full_text(papers)
     print(f"\n=== Step 3: LLM extraction ({LLM_MODEL}) ===")
     extractions=[]
-    for p in tqdm(papers): extractions.append(extract_paper(p)); time.sleep(0.3)
+    for i, p in enumerate(tqdm(papers)):
+        ext = extract_paper(p)
+        # retry once on empty response — may have hit rate limit
+        if ext.get("error") in ("empty_response", "no_json"):
+            print(f"  Retrying after 15s...")
+            time.sleep(15)
+            ext = extract_paper(p)
+        extractions.append(ext)
+        time.sleep(5)   # 5s between calls — well within 14 rpm limit
     with open(f"{RESULTS_DIR}/raw_extractions.json","w") as f:
         json.dump([{**p,"extraction":e} for p,e in zip(papers,extractions)],f,indent=2)
     print("\n=== Step 4: Building tables ===")
