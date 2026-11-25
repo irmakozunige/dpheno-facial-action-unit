@@ -38,9 +38,31 @@ OPENFACE_BIN   = "FeatureExtraction"   # or full path e.g. ~/OpenFace/build/bin/
 
 # AUs to include — update this list AFTER your meta-analysis
 # These are the most commonly reported in the schizophrenia literature
+# ── Clinically prioritised AUs ────────────────────────────────────────────────
+# Evidence base:
+#   AU5  (Upper Lid Raiser)    — increased in depression; marker of arousal/fear
+#   AU6  (Cheek Raiser)        — increased in depression; Duchenne smile component
+#   AU12 (Lip Corner Puller)   — negatively correlated with PANSS Negative scale
+#   AU4  (Brow Lowerer)        — reduced in schizophrenia; concentration/sadness
+#   AU1/2 (Brow Raise)         — surprise/concern; reduced in flat affect
+#   AU15 (Lip Corner Depress.) — sadness marker
+#   AU45 (Blink rate)          — reduced in schizophrenia; attention/dopamine proxy
+#   Source: Truelove-Hill 2021 (PMC8817208), self-confidence literature
 AU_INTENSITIES = ["AU01", "AU02", "AU04", "AU05", "AU06", "AU07",
                   "AU09", "AU10", "AU12", "AU14", "AU15", "AU17",
                   "AU20", "AU23", "AU25", "AU26", "AU45"]
+
+# Priority AUs for apathy/negative symptoms — used for focused feature set
+AU_PRIORITY = {
+    "AU04": {"label": "Brow Lowerer",       "direction": "decreased", "scale": "PANSS_N"},
+    "AU05": {"label": "Upper Lid Raiser",   "direction": "increased", "scale": "depression"},
+    "AU06": {"label": "Cheek Raiser",       "direction": "increased", "scale": "depression"},
+    "AU12": {"label": "Lip Corner Puller",  "direction": "decreased", "scale": "PANSS_N", "note": "negatively correlated with PANSS Negative"},
+    "AU01": {"label": "Inner Brow Raise",   "direction": "decreased", "scale": "flat_affect"},
+    "AU02": {"label": "Outer Brow Raise",   "direction": "decreased", "scale": "flat_affect"},
+    "AU15": {"label": "Lip Corner Depress.","direction": "decreased", "scale": "flat_affect"},
+    "AU45": {"label": "Blink",              "direction": "decreased", "scale": "schizophrenia", "note": "reduced blink rate = dopamine proxy"},
+}
 
 AU_OCCURRENCES = [f"{au}_c" for au in AU_INTENSITIES]  # binary presence
 
@@ -206,11 +228,57 @@ def aggregate_openface_csv(csv_path: Path) -> dict:
             feats[f"{col}_mean"] = df_valid[col].mean()
             feats[f"{col}_std"]  = df_valid[col].std()
 
-    # ── 8. Head pose ─────────────────────────────────────────────────────────
+    # ── 8. Head pose — mean, std, range ─────────────────────────────────────
     for col in POSE_COLS:
         if col in df_valid.columns:
-            feats[f"{col}_mean"] = df_valid[col].mean()
-            feats[f"{col}_std"]  = df_valid[col].std()
+            vals = df_valid[col].values
+            feats[f"{col}_mean"]  = vals.mean()
+            feats[f"{col}_std"]   = vals.std()
+            feats[f"{col}_range"] = vals.max() - vals.min()
+
+    # ── 9. Head movement metrics (frequency + magnitude) ─────────────────────
+    # Based on evidence that head movement variability is a biomarker in
+    # schizophrenia (reduced spontaneous movement, reduced expressivity)
+    if all(c in df_valid.columns for c in ["pose_Rx", "pose_Ry", "pose_Rz"]):
+        rx = df_valid["pose_Rx"].values
+        ry = df_valid["pose_Ry"].values
+        rz = df_valid["pose_Rz"].values
+
+        # Frame-to-frame angular displacement (magnitude of head movement)
+        dx = np.diff(rx); dy = np.diff(ry); dz = np.diff(rz)
+        displacement = np.sqrt(dx**2 + dy**2 + dz**2)
+
+        feats["head_movement_mean"]   = displacement.mean()       # mean magnitude
+        feats["head_movement_std"]    = displacement.std()        # variability
+        feats["head_movement_max"]    = displacement.max()        # peak movement
+        feats["head_movement_p90"]    = np.percentile(displacement, 90)
+
+        # Frequency of head movements (threshold crossings > 1 degree/frame)
+        threshold = 1.0   # degrees
+        movements = (displacement > threshold).astype(int)
+        feats["head_movement_freq"]   = movements.mean()          # proportion of frames
+        feats["head_nodding_freq"]    = (np.abs(dx) > threshold).mean()  # up/down (Rx)
+        feats["head_shaking_freq"]    = (np.abs(dy) > threshold).mean()  # left/right (Ry)
+        feats["head_tilting_freq"]    = (np.abs(dz) > threshold).mean()  # tilt (Rz)
+
+        # Stillness index — proportion of frames with near-zero movement
+        # High stillness = reduced spontaneous movement = apathy proxy
+        feats["head_stillness"]       = (displacement < 0.3).mean()
+
+    # ── 10. Blink rate (AU45 — dopamine/attention proxy) ────────────────────
+    if "AU45_c" in df_valid.columns:
+        # Count blink events (transitions from 0→1 in AU45 occurrence)
+        blinks     = df_valid["AU45_c"].values
+        blink_onsets = np.diff(blinks.astype(int))
+        n_blinks   = (blink_onsets == 1).sum()
+        # estimate duration in minutes
+        fps        = VIDEO_FPS_DEFAULT
+        if "timestamp" in df_valid.columns and len(df_valid) > 1:
+            duration_s = df_valid["timestamp"].iloc[-1] - df_valid["timestamp"].iloc[0]
+            fps        = len(df_valid) / max(duration_s, 1)
+        duration_min = len(df_valid) / fps / 60
+        feats["blink_rate_per_min"]   = n_blinks / max(duration_min, 0.1)
+        feats["blink_rate_raw"]       = feats["blink_rate_per_min"]   # alias
 
     return feats
 
