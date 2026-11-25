@@ -39,25 +39,100 @@ import requests
 from Bio import Entrez
 
 # ── LLM client ───────────────────────────────────────────────────────────────
-LLM_BACKEND  = os.environ.get("LLM_BACKEND", "anthropic")
-LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "")
-LLM_MODEL    = os.environ.get("LLM_MODEL", "claude-sonnet-4-6")
-LLM_API_KEY  = os.environ.get("LLM_API_KEY", os.environ.get("ANTHROPIC_API_KEY", ""))
+# Default: Gemini 2.0 Flash (free, 1500 req/day, 1M context)
+# Fallback: any OpenAI-compatible endpoint (local vLLM, Ollama, etc.)
+#
+# Setup:
+#   export GEMINI_API_KEY=...   # free at aistudio.google.com
+#   OR
+#   export LLM_BASE_URL=http://localhost:11434/v1  LLM_MODEL=llama3  # Ollama
+#   export LLM_BASE_URL=http://localhost:8000/v1   LLM_MODEL=Qwen/Qwen2.5-72B  # vLLM
 
-def llm_chat(prompt: str, max_tokens: int = 1200) -> str:
-    if LLM_BACKEND == "anthropic" or not LLM_BASE_URL:
-        import anthropic as _ant
-        c = _ant.Anthropic(api_key=LLM_API_KEY)
-        resp = c.messages.create(model=LLM_MODEL, max_tokens=max_tokens,
-                                  messages=[{"role":"user","content":prompt}])
-        return resp.content[0].text.strip()
+LLM_BACKEND      = os.environ.get("LLM_BACKEND", "gemini")
+GEMINI_API_KEY   = os.environ.get("GEMINI_API_KEY", "")
+LLM_BASE_URL     = os.environ.get("LLM_BASE_URL", "")
+LLM_MODEL        = os.environ.get("LLM_MODEL", "gemini-2.0-flash")
+LLM_API_KEY      = os.environ.get("LLM_API_KEY", GEMINI_API_KEY)
+
+# Gemini free tier limits (enforced by the wrapper below)
+# gemini-2.0-flash:  1500 req/day,  15 req/min,  1M tokens/min
+# gemini-1.5-flash:  1500 req/day,  15 req/min,  1M tokens/min
+# gemini-1.5-pro:     50 req/day,    2 req/min   (use only for narrative summary)
+GEMINI_RPM        = int(os.environ.get("GEMINI_RPM", "14"))   # stay under 15
+GEMINI_RPD        = int(os.environ.get("GEMINI_RPD", "1490"))  # stay under 1500
+_gemini_req_times: list[float] = []
+_gemini_day_count: list[int]   = [0]
+
+
+def _gemini_rate_gate():
+    """Block until it is safe to send another Gemini request."""
+    import time as _t
+    now = _t.time()
+    # per-minute window: drop timestamps older than 60 s
+    _gemini_req_times[:] = [t for t in _gemini_req_times if now - t < 60]
+    if len(_gemini_req_times) >= GEMINI_RPM:
+        wait = 60 - (now - _gemini_req_times[0]) + 1
+        print(f"    [Gemini] rate limit — waiting {wait:.0f}s")
+        _t.sleep(wait)
+    if _gemini_day_count[0] >= GEMINI_RPD:
+        raise RuntimeError("Gemini daily quota reached (1500 req). Resume tomorrow.")
+    _gemini_req_times.append(_t.time())
+    _gemini_day_count[0] += 1
+
+
+def _call_gemini(prompt: str, max_tokens: int, model: str) -> str:
+    """Call Gemini via its REST API (no SDK needed)."""
+    import time as _t
+    url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
+           f"{model}:generateContent?key={GEMINI_API_KEY}")
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "maxOutputTokens": max_tokens,
+            "temperature":     0.0,
+        },
+    }
+    for attempt in range(5):
+        _gemini_rate_gate()
+        resp = requests.post(url, json=payload, timeout=120)
+        if resp.status_code == 429:
+            wait = 2 ** attempt * 10
+            print(f"    [Gemini] 429 — backing off {wait}s")
+            _t.sleep(wait)
+            continue
+        if resp.status_code == 503:
+            _t.sleep(30); continue
+        resp.raise_for_status()
+        candidates = resp.json().get("candidates", [])
+        if not candidates:
+            return ""
+        parts = candidates[0].get("content", {}).get("parts", [])
+        return "".join(p.get("text", "") for p in parts).strip()
+    raise RuntimeError(f"Gemini failed after 5 attempts: {resp.status_code} {resp.text[:200]}")
+
+
+def llm_chat(prompt: str, max_tokens: int = 1200, prefer_pro: bool = False) -> str:
+    """
+    Unified LLM call. Routes by LLM_BACKEND:
+      gemini      → Gemini 2.0 Flash (default) via REST, rate-limited
+      openai_compat → any OpenAI-compatible server (Ollama, vLLM, LM Studio)
+    prefer_pro=True → uses gemini-1.5-pro for the final narrative only (50 req/day).
+    """
+    if LLM_BACKEND == "gemini" or (not LLM_BASE_URL and GEMINI_API_KEY):
+        model = "gemini-1.5-pro" if prefer_pro else LLM_MODEL
+        return _call_gemini(prompt, max_tokens, model)
     else:
-        from openai import OpenAI
-        c = OpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY or "EMPTY", timeout=600)
-        resp = c.chat.completions.create(model=LLM_MODEL, max_tokens=max_tokens,
-                                          temperature=0.0,
-                                          messages=[{"role":"user","content":prompt}])
+        # OpenAI-compatible: Ollama / vLLM / LM Studio / any local server
+        from openai import OpenAI as _OAI
+        c    = _OAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY or "EMPTY", timeout=600)
+        resp = c.chat.completions.create(
+            model       = LLM_MODEL,
+            messages    = [{"role": "user", "content": prompt}],
+            max_tokens  = max_tokens,
+            temperature = 0.0,
+        )
         text = resp.choices[0].message.content or ""
+        # strip <think> blocks (Qwen / DeepSeek reasoning models)
         return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -66,6 +141,9 @@ MAX_PAPERS   = 150
 RESULTS_DIR  = "results/meta"
 os.makedirs(RESULTS_DIR, exist_ok=True)
 CORE_API_KEY = os.environ.get("CORE_API_KEY", "")
+# Gemini API key — free at https://aistudio.google.com (click "Get API key")
+# Free limits: 1500 req/day, 15 req/min for Flash; 50 req/day for Pro
+# GEMINI_API_KEY already read above in the LLM client block
 BROWSER_UA   = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
                 "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
 SCIHUB_MIRRORS = ["https://sci-hub.se", "https://sci-hub.st", "https://sci-hub.ru"]
