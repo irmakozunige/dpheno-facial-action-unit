@@ -203,6 +203,18 @@ def make_chunks(text: str, doi: str) -> list[dict]:
 # 2. Gemini judge — scores each metric with chain-of-thought
 # ═══════════════════════════════════════════════════════════════════════════
 
+# ── Gemini SDK client (google-genai >= 2.3.0) ────────────────────────────────
+import google.generativeai as genai  # pip install google-genai>=2.3.0
+genai.configure(api_key=GEMINI_API_KEY)
+_gemini_client = genai.GenerativeModel(
+    model_name=EVAL_MODEL,
+    generation_config=genai.types.GenerationConfig(
+        max_output_tokens=512,
+        temperature=0.0,
+    ),
+)
+
+# Rate-limit tracking (free tier: 15 rpm, 1500 rpd)
 _rpm_times: list[float] = []
 _day_count: list[int]   = [0]
 
@@ -215,60 +227,52 @@ def _rate_gate():
         print(f"  [rate limit] waiting {wait:.0f}s")
         _t.sleep(wait)
     if _day_count[0] >= 1490:
-        raise RuntimeError("Gemini daily quota reached.")
+        raise RuntimeError("Gemini daily quota reached (1490 req).")
     _rpm_times.append(_t.time())
     _day_count[0] += 1
 
 
 def gemini_judge(prompt: str, debug: bool = False) -> str:
+    """Call Gemini via official SDK with rate limiting + retry."""
+    import time as _t
     for attempt in range(5):
         _rate_gate()
-        url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
-               f"{EVAL_MODEL}:generateContent?key={GEMINI_API_KEY}")
-        payload = {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "maxOutputTokens": 512,
-                "temperature":     0.0,
-            },
-        }
-        resp = requests.post(url, json=payload, timeout=60)
-        if resp.status_code == 429:
-            import time as _t; _t.sleep(2**attempt * 10); continue
-        if resp.status_code != 200:
+        try:
+            response = _gemini_client.generate_content(prompt)
+
             if debug:
-                print(f"    HTTP {resp.status_code}: {resp.text[:200]}")
-            import time as _t; _t.sleep(10); continue
+                finish = getattr(response.candidates[0], "finish_reason", "?")                          if response.candidates else "NO_CANDIDATES"
+                print(f"    finish_reason={finish}  "
+                      f"day_requests={_day_count[0]}")
 
-        data       = resp.json()
-        candidates = data.get("candidates", [])
+            # blocked prompt
+            if not response.candidates:
+                block = getattr(response.prompt_feedback, "block_reason", "unknown")
+                if debug: print(f"    Blocked: {block}")
+                return f"BLOCKED:{block}"
 
-        if debug:
-            # print full response structure on first call
-            finish  = candidates[0].get("finishReason","?") if candidates else "NO_CANDIDATES"
-            filters = data.get("promptFeedback", {}).get("blockReason", "none")
-            print(f"    finishReason={finish}  blockReason={filters}")
+            text = response.text.strip() if response.text else ""
 
-        if not candidates:
-            # no candidates — usually means prompt was blocked
-            block = data.get("promptFeedback", {}).get("blockReason", "unknown")
-            if debug: print(f"    No candidates, blockReason={block}")
-            return f"BLOCKED:{block}"
+            if not text:
+                finish = getattr(response.candidates[0], "finish_reason", "?")
+                if debug: print(f"    Empty response, finish_reason={finish}")
+                if str(finish) == "SAFETY":
+                    _t.sleep(2); continue
+                return ""
 
-        # some candidates have no content (e.g. finishReason=SAFETY)
-        content = candidates[0].get("content", {})
-        parts   = content.get("parts", [])
-        text    = "".join(p.get("text", "") for p in parts).strip()
+            return text
 
-        if not text:
-            finish = candidates[0].get("finishReason", "?")
-            if debug: print(f"    Empty text, finishReason={finish}")
-            # retry with slightly rephrased prompt on SAFETY finish
-            if finish == "SAFETY":
-                import time as _t; _t.sleep(2); continue
-            return ""
-
-        return text
+        except Exception as e:
+            err = str(e)
+            if "429" in err or "quota" in err.lower():
+                wait = 2**attempt * 10
+                print(f"    [429] backing off {wait}s")
+                _t.sleep(wait)
+            elif "503" in err:
+                _t.sleep(30)
+            else:
+                if debug: print(f"    SDK error: {e}")
+                _t.sleep(5)
 
     return ""
 
