@@ -37,7 +37,8 @@ from tqdm import tqdm
 import requests
 from Bio import Entrez
 
-RESULTS_DIR = "results/eval"
+# Use absolute path so plot saves correctly regardless of working directory
+RESULTS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "results", "eval")
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
