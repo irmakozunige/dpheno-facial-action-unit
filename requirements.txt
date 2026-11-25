@@ -22,9 +22,8 @@ xgboost>=2.0.0
 shap>=0.44.0
 statsmodels>=0.14.0
 
-# LLM backends — install what you use
-# Gemini: no extra package needed (pure requests)
-# Ollama / vLLM / any OpenAI-compat server:
+# LLM backends — Gemini needs no extra package (pure requests)
+# For Ollama / vLLM / any OpenAI-compat server:
 openai>=1.30.0
-# Anthropic (paid):
+# For Anthropic (paid):
 # anthropic>=0.25.0
