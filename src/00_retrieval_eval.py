@@ -98,7 +98,7 @@ def _rate_gate():
         wait = 60 - (now - _rpm_times[0]) + 1
         print(f"  [rate limit] waiting {wait:.0f}s")
         time.sleep(wait)
-    if _day_count[0] >= 1490:
+    if _day_count[0] >= 490:   # gemini-3.5-flash-lite: 500 req/day
         raise RuntimeError("Gemini daily quota reached (1490 req).")
     _rpm_times.append(time.time())
     _day_count[0] += 1
