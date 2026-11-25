@@ -220,21 +220,56 @@ def _rate_gate():
     _day_count[0] += 1
 
 
-def gemini_judge(prompt: str) -> str:
+def gemini_judge(prompt: str, debug: bool = False) -> str:
     for attempt in range(5):
         _rate_gate()
         url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
                f"{EVAL_MODEL}:generateContent?key={GEMINI_API_KEY}")
-        resp = requests.post(url, json={
+        payload = {
             "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"maxOutputTokens": 512, "temperature": 0.0},
-        }, timeout=60)
+            "generationConfig": {
+                "maxOutputTokens": 512,
+                "temperature":     0.0,
+            },
+        }
+        resp = requests.post(url, json=payload, timeout=60)
         if resp.status_code == 429:
             import time as _t; _t.sleep(2**attempt * 10); continue
         if resp.status_code != 200:
+            if debug:
+                print(f"    HTTP {resp.status_code}: {resp.text[:200]}")
             import time as _t; _t.sleep(10); continue
-        parts = resp.json().get("candidates",[{}])[0].get("content",{}).get("parts",[])
-        return "".join(p.get("text","") for p in parts).strip()
+
+        data       = resp.json()
+        candidates = data.get("candidates", [])
+
+        if debug:
+            # print full response structure on first call
+            finish  = candidates[0].get("finishReason","?") if candidates else "NO_CANDIDATES"
+            filters = data.get("promptFeedback", {}).get("blockReason", "none")
+            print(f"    finishReason={finish}  blockReason={filters}")
+
+        if not candidates:
+            # no candidates — usually means prompt was blocked
+            block = data.get("promptFeedback", {}).get("blockReason", "unknown")
+            if debug: print(f"    No candidates, blockReason={block}")
+            return f"BLOCKED:{block}"
+
+        # some candidates have no content (e.g. finishReason=SAFETY)
+        content = candidates[0].get("content", {})
+        parts   = content.get("parts", [])
+        text    = "".join(p.get("text", "") for p in parts).strip()
+
+        if not text:
+            finish = candidates[0].get("finishReason", "?")
+            if debug: print(f"    Empty text, finishReason={finish}")
+            # retry with slightly rephrased prompt on SAFETY finish
+            if finish == "SAFETY":
+                import time as _t; _t.sleep(2); continue
+            return ""
+
+        return text
+
     return ""
 
 
@@ -584,7 +619,7 @@ if __name__ == "__main__":
         # ── Smoke test: verify Gemini responds before the full eval loop ──────
         print("=== Gemini smoke test ===")
         try:
-            test_resp = gemini_judge("Reply with exactly: OK")
+            test_resp = gemini_judge("Reply with exactly: OK", debug=True)
             if "OK" in test_resp.upper():
                 print(f"  Gemini responded: {test_resp.strip()} ✓")
             else:
