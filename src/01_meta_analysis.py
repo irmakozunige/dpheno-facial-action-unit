@@ -436,40 +436,60 @@ def enrich_with_full_text(papers):
 # ═══════════════════════════════════════════════════════════════════════════
 
 EXTRACT_PROMPT = textwrap.dedent("""
-You are a clinical research assistant doing a systematic meta-analysis on
-facial Action Units (AUs) in schizophrenia.
+You are extracting AU findings from a clinical paper for a systematic meta-analysis.
 
 FACS AU reference:
 {au_ref}
 
-Given the paper text, extract EXACTLY this JSON — no preamble, no fences:
+The text below uses paragraph tags like [p3:2] meaning page 3, paragraph 2.
+For EVERY finding you extract, you MUST record:
+  - exact_quote: the verbatim sentence(s) you used
+  - source_page / source_para: from the [pPAGE:PARA] tag of that paragraph
 
+Return EXACTLY this JSON — no preamble, no fences:
 {{
   "aus_studied": ["AU4","AU12"],
   "findings": {{
     "AU4": {{
-      "au_label": "Brow Lowerer", "face_region": "brow",
-      "functional_tag": "anger/sadness/concentration",
-      "direction": "decreased", "feature_type": "intensity",
-      "mean_sz": 1.2, "sd_sz": 0.4, "mean_hc": 2.1, "sd_hc": 0.5,
-      "stat_reported": "t(48)=3.2, p=0.002", "notes": ""
+      "au_label":      "Brow Lowerer",
+      "face_region":   "brow",
+      "functional_tag":"anger/sadness/concentration",
+      "direction":     "decreased",
+      "feature_type":  "intensity",
+      "mean_sz":       1.2,
+      "sd_sz":         0.4,
+      "mean_hc":       2.1,
+      "sd_hc":         0.5,
+      "stat_reported": "t(48)=3.2, p=0.002",
+      "exact_quote":   "AU4 intensity was significantly lower in SZ (M=1.2, SD=0.4) vs HC (M=2.1, SD=0.5), t(48)=3.2, p=0.002.",
+      "source_page":   3,
+      "source_para":   2,
+      "notes":         ""
     }},
     "AU12": {{
-      "au_label": "Lip Corner Puller", "face_region": "mouth",
-      "functional_tag": "smile / positive affect",
-      "direction": "decreased", "feature_type": "frequency",
-      "mean_sz": null, "sd_sz": null, "mean_hc": null, "sd_hc": null,
-      "stat_reported": "p<0.05", "notes": ""
+      "au_label":      "Lip Corner Puller",
+      "face_region":   "mouth",
+      "functional_tag":"smile / positive affect",
+      "direction":     "decreased",
+      "feature_type":  "frequency",
+      "mean_sz":       null, "sd_sz": null, "mean_hc": null, "sd_hc": null,
+      "stat_reported": "p<0.05",
+      "exact_quote":   "The frequency of AU12 was significantly reduced in patients.",
+      "source_page":   4,
+      "source_para":   1,
+      "notes":         ""
     }}
   }},
   "n_sz": 30, "n_hc": 28,
   "target_measure": "negative symptoms",
-  "apathy_scale": "PANSS",
-  "method": "OpenFace",
-  "study_design": "cross-sectional"
+  "apathy_scale":   "PANSS",
+  "method":         "OpenFace",
+  "study_design":   "cross-sectional"
 }}
 
 Rules:
+- exact_quote: copy verbatim from the [pPAGE:PARA] tagged text — never paraphrase
+- source_page/source_para: integers from the tag of the paragraph containing the quote
 - direction: "decreased" | "increased" | "no difference" | null
 - feature_type: "intensity" | "frequency" | "duration" | "presence" | null
 - mean_sz/sd_sz/mean_hc/sd_hc: numbers only, null if not reported
@@ -516,6 +536,7 @@ def build_long_table(papers,extractions):
             if not isinstance(info,dict): info={"direction":info}
             g,se=hedges_g(info.get("mean_sz"),info.get("sd_sz"),ext.get("n_sz"),
                           info.get("mean_hc"),info.get("sd_hc"),ext.get("n_hc"))
+            doi = paper.get("doi","") or ""
             rows.append({
                 "id":label,"paper_id":paper["id"],"year":paper["year"],
                 "source":paper.get("source",""),"journal":paper.get("journal",""),
@@ -530,6 +551,12 @@ def build_long_table(papers,extractions):
                 "n_sz":ext.get("n_sz"),"n_hc":ext.get("n_hc"),
                 "hedges_g":g,"se_g":se,
                 "stat_reported":info.get("stat_reported",""),
+                "exact_quote":info.get("exact_quote",""),
+                "source_page":info.get("source_page"),
+                "source_para":info.get("source_para"),
+                "doi":doi,
+                "doi_link":f"https://doi.org/{doi}" if doi else "",
+                "pubmed_link":f"https://pubmed.ncbi.nlm.nih.gov/{paper['id'].replace('pmid_','')}" if paper["id"].startswith("pmid_") else "",
                 "target_measure":ext.get("target_measure"),"apathy_scale":ext.get("apathy_scale"),
                 "method":ext.get("method"),"study_design":ext.get("study_design"),
                 "notes":info.get("notes",""),
