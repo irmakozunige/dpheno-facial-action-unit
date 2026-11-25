@@ -701,51 +701,65 @@ def enrich_with_full_text(papers):
 # ═══════════════════════════════════════════════════════════════════════════
 
 EXTRACT_PROMPT = textwrap.dedent("""
-You are extracting AU findings from a clinical paper for a systematic meta-analysis.
+You are extracting facial Action Unit (AU) findings from a clinical paper for a
+systematic meta-analysis on schizophrenia.
 
-FACS AU reference:
+FACS AU reference (use this to map descriptions to AU codes):
 {au_ref}
 
-The text below uses paragraph tags like [p3:2] meaning page 3, paragraph 2.
-For EVERY finding you extract, you MUST record:
-  - exact_quote: the verbatim sentence(s) you used
-  - source_page / source_para: from the [pPAGE:PARA] tag of that paragraph
+IMPORTANT MAPPING RULES:
+- "smile" / "lip corner" / "zygomaticus" → AU12
+- "brow raise" / "eyebrow raise" / "inner brow" → AU1 or AU2
+- "brow lower" / "furrowing" / "corrugator" → AU4
+- "cheek raise" / "Duchenne smile" / "orbicularis oculi" → AU6
+- "upper lid raise" / "wide eyes" → AU5
+- "lip corner depress" / "sadness expression" → AU15
+- "jaw drop" / "mouth open" → AU26
+- "nose wrinkle" → AU9
+- "overall expressivity" / "facial expressivity" / "mean AU intensity" → use "EXPR"
+- "head movement" / "head motion" / "head pose variability" → use "HEAD"
+- If paper uses FACS/OpenFace/automated coding and reports ANY facial expression
+  difference between SZ and HC, extract it even if AU codes are not explicit.
 
 Return EXACTLY this JSON — no preamble, no fences:
 {{
-  "aus_studied": ["AU4","AU12"],
+  "aus_studied": ["AU12", "AU6", "EXPR"],
   "findings": {{
-    "AU4": {{
-      "au_label":      "Brow Lowerer",
-      "face_region":   "brow",
-      "functional_tag":"anger/sadness/concentration",
-      "direction":     "decreased",
-      "feature_type":  "intensity",
-      "mean_sz":       1.2,
-      "sd_sz":         0.4,
-      "mean_hc":       2.1,
-      "sd_hc":         0.5,
-      "stat_reported": "t(48)=3.2, p=0.002",
-      "exact_quote":   "AU4 intensity was significantly lower in SZ (M=1.2, SD=0.4) vs HC (M=2.1, SD=0.5), t(48)=3.2, p=0.002.",
-      "source_page":   3,
-      "source_para":   2,
-      "notes":         ""
-    }},
     "AU12": {{
       "au_label":      "Lip Corner Puller",
       "face_region":   "mouth",
       "functional_tag":"smile / positive affect",
       "direction":     "decreased",
       "feature_type":  "frequency",
-      "mean_sz":       null, "sd_sz": null, "mean_hc": null, "sd_hc": null,
+      "mean_sz":       null,
+      "sd_sz":         null,
+      "mean_hc":       null,
+      "sd_hc":         null,
       "stat_reported": "p<0.05",
-      "exact_quote":   "The frequency of AU12 was significantly reduced in patients.",
-      "source_page":   4,
-      "source_para":   1,
+      "exact_quote":   "Smiling behavior was significantly reduced in SZ patients.",
+      "source_page":   null,
+      "source_para":   null,
+      "notes":         ""
+    }},
+    "EXPR": {{
+      "au_label":      "Overall Facial Expressivity",
+      "face_region":   "composite",
+      "functional_tag":"mean AU intensity across all AUs",
+      "direction":     "decreased",
+      "feature_type":  "intensity",
+      "mean_sz":       0.42,
+      "sd_sz":         0.11,
+      "mean_hc":       0.68,
+      "sd_hc":         0.14,
+      "stat_reported": "t(88)=4.1, p<0.001",
+      "exact_quote":   "Overall facial expressivity was significantly lower in SZ.",
+      "source_page":   null,
+      "source_para":   null,
       "notes":         ""
     }}
   }},
-  "n_sz": 30, "n_hc": 28,
+  "n_sz": 30,
+  "n_hc": 28,
   "target_measure": "negative symptoms",
   "apathy_scale":   "PANSS",
   "method":         "OpenFace",
@@ -753,15 +767,18 @@ Return EXACTLY this JSON — no preamble, no fences:
 }}
 
 Rules:
-- exact_quote: copy verbatim from the [pPAGE:PARA] tagged text — never paraphrase
-- source_page/source_para: integers from the tag of the paragraph containing the quote
+- aus_studied MUST be non-empty if the paper reports ANY facial expression
+  difference between schizophrenia patients and healthy controls/comparison group
+- Map facial descriptions to AU codes using the reference table above
+- Use "EXPR" for overall expressivity measures, "HEAD" for head movement
 - direction: "decreased" | "increased" | "no difference" | null
 - feature_type: "intensity" | "frequency" | "duration" | "presence" | null
+- exact_quote: most relevant sentence from the text, verbatim
 - mean_sz/sd_sz/mean_hc/sd_hc: numbers only, null if not reported
 - target_measure: "apathy" | "negative symptoms" | "both" | "other"
 - apathy_scale: PANSS / BNSS / SANS / CAINS / etc., or null
 - study_design: "cross-sectional" | "longitudinal" | "RCT" | "other"
-- If no SZ-control AU comparison: return aus_studied: []
+- Only return aus_studied: [] if the paper has NO comparison between SZ and HC/controls
 """).strip()
 
 def extract_paper(paper):
