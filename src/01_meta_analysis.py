@@ -440,8 +440,8 @@ def collect_all_papers():
 # AU codes and schizophrenia-specific terms
 _AU_PAT   = re.compile(r"\bAU\s*\d{1,2}\b", re.I)
 _TOOL_PAT = re.compile(
-    r"\b(OpenFace|FACS|facial action coding|action unit|AU intensity|"
-    r"AU frequency|blunted affect|flat affect|expressivity|facial movement)\b", re.I)
+    r"\b(OpenFace|FACS|facial action coding system|facial action coding|"
+    r"action unit|AU intensity|AU frequency|AU occurrence|AU activation)\b", re.I)
 _SZ_PAT   = re.compile(
     r"\b(schizophrenia|schizophrenic|psychosis|psychotic|schizoaffective|"
     r"negative symptom|apathy|anhedonia)\b", re.I)
@@ -477,9 +477,16 @@ def rank_papers(papers: list[dict]) -> list[dict]:
         sz_hits   = len(_SZ_PAT.findall(text))
         q_hits    = len(_QUANT_PAT.findall(text))
 
-        # Hard gate: MUST have both AU signal AND schizophrenia term
+        # Hard gate: MUST have BOTH:
+        #   AU signal = actual AU code (AU4, AU12) OR specific tool (OpenFace, FACS)
+        #   SZ signal = schizophrenia/psychosis term
         has_au = (au_hits > 0 or tool_hits > 0)
         has_sz = (sz_hits > 0)
+        # extra check: AU code must appear as AU+number, not just "action unit" alone
+        # unless OpenFace/FACS is mentioned (they always measure AUs)
+        au_code_hits = len(re.findall(r"\bAU\s*\d{1,2}\b", text, re.I))
+        openface_facs = len(re.findall(r"\b(OpenFace|FACS|facial action coding)\b", text, re.I))
+        has_au = (au_code_hits > 0 or openface_facs > 0)
 
         if not has_au or not has_sz:
             p["_relevance_score"] = 0
