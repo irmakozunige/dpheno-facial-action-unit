@@ -288,6 +288,15 @@ Rules:
 - apathy_scale: PANSS / BNSS / SANS / CAINS / etc., or null
 - study_design: "cross-sectional" | "longitudinal" | "RCT" | "other"
 - Only return aus_studied: [] if the paper has NO comparison between SZ and HC/controls
+- CRITICAL: Extract findings ONLY from Results/Findings sections, NOT from Methods
+  If a paper describes how they measured AUs in Methods but results are not in the text,
+  return aus_studied: []
+- For EXPR and HEAD: only use these if the paper explicitly reports a RESULT
+  (e.g. "expressivity was lower", "head movement was reduced") — never from methods descriptions
+- For mean_sz/sd_sz/mean_hc/sd_hc: search carefully in Results for any numerical values.
+  Look for patterns like: M=X, SD=Y or mean=X (SD=Y) or X±Y or tables with group means.
+  These are the most important values — extract them even if they appear in table descriptions.
+  If you find a table described in text with group means, extract the numbers.
 """).strip()
 
 def extract_paper(paper):
@@ -605,6 +614,55 @@ if __name__=="__main__":
 
     print("\n=== Step 2: Full-text retrieval ===")
     papers=enrich_with_full_text(papers)
+
+def validate_extraction(ext: dict) -> dict:
+    """
+    Post-process extraction to catch common LLM errors:
+    1. Remove HEAD_EXPR/EXPR findings where feature_type=duration (methods misread)
+    2. Flag implausible effect directions
+    3. Ensure numerical values are actually numbers
+    """
+    if "error" in ext or not ext.get("findings"):
+        return ext
+
+    findings = ext.get("findings", {})
+    to_remove = []
+
+    for au, info in findings.items():
+        if not isinstance(info, dict):
+            continue
+
+        # Remove HEAD_EXPR with feature_type=duration — almost always a methods misread
+        if au in ("HEAD_EXPR", "HEAD") and info.get("feature_type") == "duration":
+            to_remove.append(au)
+            print(f"    Filtered HEAD_EXPR duration (likely methods section)")
+            continue
+
+        # Remove findings with direction=increased for EXPR — counter to all evidence
+        if au == "EXPR" and info.get("direction") == "increased":
+            to_remove.append(au)
+            print(f"    Filtered EXPR increased (implausible)")
+            continue
+
+        # Ensure numerical fields are actually numbers
+        for field in ("mean_sz", "sd_sz", "mean_hc", "sd_hc"):
+            val = info.get(field)
+            if val is not None:
+                try:
+                    info[field] = float(val)
+                except (ValueError, TypeError):
+                    info[field] = None
+
+    for au in to_remove:
+        del findings[au]
+
+    # Update aus_studied to match filtered findings
+    ext["aus_studied"] = [au for au in ext.get("aus_studied", [])
+                          if au not in to_remove]
+    ext["findings"] = findings
+    return ext
+
+
     print(f"\n=== Step 3: LLM extraction ({LLM_MODEL}) ===")
     extractions=[]
     for i, p in enumerate(tqdm(papers)):
@@ -614,6 +672,7 @@ if __name__=="__main__":
             print(f"  Retrying after 15s...")
             time.sleep(15)
             ext = extract_paper(p)
+        ext = validate_extraction(ext)
         extractions.append(ext)
         time.sleep(5)   # 5s between calls — well within 14 rpm limit
     with open(f"{RESULTS_DIR}/raw_extractions.json","w") as f:
