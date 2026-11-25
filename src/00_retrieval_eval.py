@@ -187,7 +187,7 @@ def fetch_sample_papers(n: int) -> list[dict]:
     # PubMed
     try:
         h   = Entrez.esearch(db="pubmed",
-                              term="facial action units schizophrenia",
+                              term="facial action units schizophrenia OR blunted affect AU schizophrenia OR OpenFace schizophrenia",
                               retmax=n, sort="relevance")
         ids = Entrez.read(h)["IdList"]; h.close()
         h   = Entrez.efetch(db="pubmed", id=ids, rettype="abstract", retmode="xml")
@@ -239,12 +239,18 @@ def make_chunks(text: str, doi: str) -> list[dict]:
     chunks = []
     for i, para in enumerate(text.split("\n\n")):
         para = para.strip()
-        if len(para) < 60:
+        if len(para) < 40:
             continue
-        score = len(AU_PAT.findall(para)) * 3 + len(KEY_PAT.findall(para))
+        # AU mentions weighted 5x — they are the signal
+        score = len(AU_PAT.findall(para)) * 5 + len(KEY_PAT.findall(para))
+        # bonus: paragraphs with numbers (means/SDs/p-values) are results sections
+        num_bonus = len(re.findall(r"[0-9]+\.[0-9]+", para))
+        score += min(num_bonus, 5)
         chunks.append({"doi": doi, "page": 0, "para_idx": i,
                         "text": para[:800], "_score": score})
-    return sorted(chunks, key=lambda c: c["_score"], reverse=True)[:10]
+    # return top 15 (more coverage) but require score > 0
+    ranked = sorted(chunks, key=lambda c: c["_score"], reverse=True)
+    return [c for c in ranked if c["_score"] > 0][:15]
 
 
 def try_fetch_fulltext(paper: dict) -> dict:
@@ -385,11 +391,13 @@ def score_context_relevance(chunks: list[dict]) -> float:
     if not chunks:
         return 0.0
     scores = []
-    for chunk in chunks[:3]:
+    # score top 5 chunks — better signal than top 3
+    for chunk in chunks[:5]:
         resp = gemini_judge(CR_PROMPT.format(
             question=RESEARCH_QUESTION, chunk=chunk["text"][:600]))
-        scores.append(parse_score(resp))
-    return float(np.mean(scores))
+        s = parse_score(resp)
+        scores.append(s)
+    return float(np.mean(scores)) if scores else 0.0
 
 
 def score_faithfulness(claim: str, chunks: list[dict]) -> float:
