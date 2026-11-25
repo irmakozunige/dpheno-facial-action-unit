@@ -136,7 +136,8 @@ def llm_chat(prompt: str, max_tokens: int = 1200, prefer_pro: bool = False) -> s
 
 # ── Config ────────────────────────────────────────────────────────────────────
 Entrez.email = "irmak.ozarslan@unige.ch"
-MAX_PAPERS   = 150
+MAX_PAPERS   = 400   # collect broadly
+TOP_K        = 30    # keep only top-ranked after scoring
 RESULTS_DIR  = "results/meta"
 os.makedirs(RESULTS_DIR, exist_ok=True)
 CORE_API_KEY = os.environ.get("CORE_API_KEY", "")
@@ -431,6 +432,73 @@ def collect_all_papers():
             time.sleep(0.5)
     print(f"\n  Total unique papers: {len(papers)}")
     return papers[:MAX_PAPERS]
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 1b. RELEVANCE RANKING — score and keep top-K before extraction
+# ═══════════════════════════════════════════════════════════════════════════
+
+# AU codes and schizophrenia-specific terms
+_AU_PAT   = re.compile(r"\bAU\s*\d{1,2}\b", re.I)
+_TOOL_PAT = re.compile(
+    r"\b(OpenFace|FACS|facial action coding|action unit|AU intensity|"
+    r"AU frequency|blunted affect|flat affect|expressivity|facial movement)\b", re.I)
+_SZ_PAT   = re.compile(
+    r"\b(schizophrenia|schizophrenic|psychosis|psychotic|schizoaffective|"
+    r"negative symptom|apathy|anhedonia)\b", re.I)
+_QUANT_PAT = re.compile(
+    r"\b(mean|SD|standard deviation|p\s*[=<]|t\(|F\(|effect size|"
+    r"Cohen|Hedges|significant|regression|correlation)\b", re.I)
+
+
+def rank_papers(papers: list[dict]) -> list[dict]:
+    """
+    Score each paper by relevance to AU + schizophrenia research.
+    Returns papers sorted descending, capped at TOP_K.
+
+    Scoring:
+      +5 per AU code mention  (AU4, AU12 etc.)       — most specific signal
+      +3 per tool/method term (OpenFace, FACS etc.)
+      +2 per schizophrenia term
+      +1 per quantitative term (mean, SD, p=)
+      +10 bonus if title contains AU code             — title = very strong signal
+      +5  bonus if title contains OpenFace or FACS
+      -5  penalty if no schizophrenia term at all     — wrong domain
+    """
+    for p in papers:
+        text  = f"{p.get('title','')} {p.get('abstract','')}"
+        title = p.get("title", "")
+
+        au_hits   = len(_AU_PAT.findall(text))
+        tool_hits = len(_TOOL_PAT.findall(text))
+        sz_hits   = len(_SZ_PAT.findall(text))
+        q_hits    = len(_QUANT_PAT.findall(text))
+
+        score = (au_hits * 5 + tool_hits * 3 + sz_hits * 2 + q_hits * 1)
+
+        # Title bonuses
+        if _AU_PAT.search(title):   score += 10
+        if _TOOL_PAT.search(title): score += 5
+
+        # Penalty: irrelevant domain
+        if sz_hits == 0: score -= 5
+
+        p["_relevance_score"] = score
+
+    ranked = sorted(papers, key=lambda p: p["_relevance_score"], reverse=True)
+
+    print(f"\n=== Relevance ranking (top {TOP_K} of {len(papers)}) ===")
+    print(f"  {'Score':>6}  {'AU':>3}  Title[:65]")
+    print(f"  {'─'*6}  {'─'*3}  {'─'*65}")
+    for p in ranked[:TOP_K]:
+        au_n = len(_AU_PAT.findall(f"{p['title']} {p['abstract']}"))
+        print(f"  {p['_relevance_score']:>6.0f}  {au_n:>3}  {p['title'][:65]}")
+
+    if len(ranked) > TOP_K:
+        print(f"  ... {len(ranked)-TOP_K} lower-ranked papers discarded")
+
+    return ranked[:TOP_K]
+
+
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -882,6 +950,9 @@ def narrative_summary(meta_df,long_df,vocab_df):
 if __name__=="__main__":
     print("=== Step 1: Retrieving papers (8 sources) ===")
     papers=collect_all_papers()
+    print("\n=== Step 1b: Relevance ranking ===")
+    papers = rank_papers(papers)
+
     print("\n=== Step 2: Full-text retrieval ===")
     papers=enrich_with_full_text(papers)
     print(f"\n=== Step 3: LLM extraction ({LLM_MODEL}) ===")
