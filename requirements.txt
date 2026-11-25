@@ -22,7 +22,8 @@ xgboost>=2.0.0
 shap>=0.44.0
 statsmodels>=0.14.0
 
-# LLM — Gemini (official SDK, required >= 2.3.0)
+# LLM — Gemini official SDK (google-genai, NOT google-generativeai)
+# Usage: from google import genai
 google-genai>=2.3.0
 
 # LLM — OpenAI-compatible (Ollama / vLLM / LM Studio)
