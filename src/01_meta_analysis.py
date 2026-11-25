@@ -426,8 +426,13 @@ def collect_all_papers():
             except Exception as e: print(f"      error: {e}"); res=[]
             new=0
             for p in res:
-                fp=_fp(p["title"])
-                if fp not in seen_set: seen_set.add(fp); papers.append(p); new+=1
+                fp = _fp(p["title"])
+                # also deduplicate by DOI if available
+                doi_key = f"doi_{p.get('doi','')}" if p.get("doi") else None
+                if fp not in seen_set and (not doi_key or doi_key not in seen_set):
+                    seen_set.add(fp)
+                    if doi_key: seen_set.add(doi_key)
+                    papers.append(p); new+=1
             print(f"      +{new}  (total {len(papers)})")
             time.sleep(0.5)
     print(f"\n  Total unique papers: {len(papers)}")
@@ -485,7 +490,7 @@ def rank_papers(papers: list[dict]) -> list[dict]:
         # extra check: AU code must appear as AU+number, not just "action unit" alone
         # unless OpenFace/FACS is mentioned (they always measure AUs)
         au_code_hits = len(re.findall(r"\bAU\s*\d{1,2}\b", text, re.I))
-        openface_facs = len(re.findall(r"\b(OpenFace|FACS|facial action coding)\b", text, re.I))
+        openface_facs = len(re.findall(r"\b(OpenFace|FACS|facial action coding system|facial action coding|AffectNet|iMotions|Noldus FaceReader|FaceReader)\b", text, re.I))
         has_au = (au_code_hits > 0 or openface_facs > 0)
 
         if not has_au or not has_sz:
